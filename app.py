@@ -1,34 +1,49 @@
 import hashlib
+import ipaddress
 import subprocess
+
 from flask import Flask, request
+from markupsafe import escape
 
 app = Flask(__name__)
+
+PING = "/bin/ping"  # устранение B607 по существу
 
 
 @app.route("/")
 def hello_world():
     user_id = request.args.get("id", "1")
-    # Дефект №1: отраженная XSS
-    return f"<h1>Hello, user #{user_id}!</h1>"
+    # Исправление №1: экранирование ввода
+    return f"<h1>Hello, user #{escape(user_id)}!</h1>"
 
 
 @app.route("/checksum")
 def checksum():
     data = request.args.get("data", "")
-    # Дефект №2: MD5 (B324)
-    return hashlib.md5(data.encode()).hexdigest()
+    # Исправление №2: стойкий хэш
+    return hashlib.sha256(data.encode()).hexdigest()
 
 
 @app.route("/ping")
 def ping():
     host = request.args.get("host", "127.0.0.1")
-    # Дефект №3: инъекция команд ОС (B602)
+
+    # Исправление №3, слой 1: валидация allow-list
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return "Invalid IP address", 400
+
+    # Исправление №3, слой 2: список аргументов, shell=False
     result = subprocess.run(
-        f"ping -c 1 {host}", shell=True, capture_output=True, check=False
+        [PING, "-c", "1", host],
+        capture_output=True,
+        check=False,
+        timeout=5,
     )
-    return f"<pre>{result.stdout.decode()}</pre>"
+    return f"<pre>{escape(result.stdout.decode())}</pre>"
 
 
 if __name__ == "__main__":
-    # Дефект №4: debug=True (B201)
-    app.run(debug=True)
+    # Исправление №4: debug выключен
+    app.run(debug=False)
